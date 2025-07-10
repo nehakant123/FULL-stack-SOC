@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Product List</title>
+</head>
+<body>
+  <h1>Available Products</h1>
+
+  <% if (products.length === 0) { %>
+    <p>No products found.</p>
+  <% } else { %>
+    <ul>
+      <% products.forEach(product => { %>
+        <li>
+          <strong>Name:</strong> <%= product.name %><br>
+          <strong>Price:</strong> $<%= product.price %><br>
+          <strong>Stock:</strong> <%= product.stock_quantity %><br>
+        </li>
+        <hr>
+      <% }) %>
+    </ul>
+  <% } %>
+
+  <a href="/dashboard">Back to Dashboard</a>
+</body>
+</html>
