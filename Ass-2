@@ -1,0 +1,446 @@
+const express = require('express');
+const bodyParser = require('body-parser');
+const session = require('express-session');
+const bcrypt = require('bcrypt');
+const { Pool } = require('pg');
+const app = express();
+const port = 3000;
+
+
+// TODO: Update PostgreSQL connection credentials before running the server
+const pool = new Pool({
+  user: 'test',
+  host: 'localhost',
+  database: 'ecommerce',
+  password: 'test',
+  port: 5432,
+});
+
+app.use(bodyParser.urlencoded({ extended: true }));
+app.set('view engine', 'ejs');
+app.set('views', './views');
+
+// Set up session
+app.use(session({
+  secret: 'your_secret_key',
+  resave: false,
+  saveUninitialized: true,
+}));
+
+
+// Start server
+app.listen(port, () => {
+  console.log(`Server running at http://localhost:${port}`);
+});
+
+
+
+// Middleware to check if user is logged in
+function isLoggedIn(req, res, next) {
+  if (req.session.userId) {
+    return res.redirect('/dashboard');  // Redirect to dashboard or home page
+  }
+  next();  // If not logged in, proceed to the signup/login page
+}
+
+// TODO: Implement authentication middleware
+// Redirect unauthenticated users to the login page
+function isAuthenticated(req, res, next) {
+  if(req.session.userId)
+    return next();
+  else
+  return res.redirect('/login');
+  
+}
+
+
+// Route: Home page
+app.get('/', async (req, res) => {
+  try {
+    // Query to get all products
+    const result = await pool.query('SELECT * FROM Products');
+    
+    // Render the 'home-page' template, 
+    // passing the retrieved product data to the template 
+    // for rendering within the page.
+    res.render('home-page', { products: result.rows });
+  } catch (error) {
+    console.error(error);
+    res.send('Server error');
+  }
+});
+
+
+// Route: Signup page
+app.get('/signup', isLoggedIn, (req, res) => {
+  res.render('signup');
+});
+
+// TODO: Implement user signup logic
+app.post('/signup', isLoggedIn, async (req, res) => {
+  const { username, password, email } = req.body;
+
+  try {
+    // Check for duplicate email
+    const existingUser = await pool.query('SELECT * FROM Users WHERE email = $1', [email]);
+    if (existingUser.rows.length > 0) {
+      return res.send("Error: Email already exists. <a href='/login'>Login here</a>");
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Insert user
+    const result = await pool.query(
+      'INSERT INTO Users(username, email, password_hash) VALUES ($1, $2, $3) RETURNING user_id',
+      [username, email, hashedPassword]
+    );
+
+    // Save user in session
+    req.session.userId = result.rows[0].user_id;
+
+    res.redirect('/dashboard');
+  } catch (err) {
+    console.error(err);
+    res.send("An error occurred during signup.");
+  }
+});
+
+
+// Route: Login page 
+app.get('/login', isLoggedIn, (req, res) => {
+  res.render('login', { error: null });
+});
+
+
+// TODO: Implement user login logic
+app.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    const user = await pool.query('SELECT * FROM Users WHERE email = $1', [email]);
+    if (user.rows.length === 0) {
+      return res.render('login', { error: 'Invalid email or password.' });
+    }
+
+    const validPassword = await bcrypt.compare(password, user.rows[0].password_hash);
+    if (!validPassword) {
+      return res.render('login', { error: 'Invalid email or password.' });
+    }
+
+    req.session.userId = user.rows[0].user_id;
+    res.redirect('/dashboard');
+  } catch (err) {
+    console.error(err);
+    res.render('login', { error: 'Server error during login.' });
+  }
+});
+
+
+// Route: Dashboard page (requires authentication)
+// TODO: Render the dashboard page
+app.get('/dashboard', isAuthenticated, async (req, res) => {
+  res.render('dashboard');
+});
+
+
+// Route: List products
+// TODO: Fetch and display all products from the database
+app.get('/list-products', isAuthenticated, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM Products ORDER BY product_id=$1');
+    res.render('products', { products: result.rows });
+  } catch (err) {
+    console.error(err);
+    res.send("Error retrieving products.");
+  }
+});
+
+
+// Route: Add product to cart
+// TODO: Implement "Add to Cart" functionality
+app.get('/add-to-cart', isAuthenticated, async (req, res) => {
+  try {
+    // Get product list for user to choose
+    const products = await pool.query('SELECT * FROM Products ORDER BY product_id');
+    res.render('add-to-cart', { products: products.rows, message: null });
+  } catch (err) {
+    console.error(err);
+    res.send('Error loading Add to Cart page.');
+  }
+});
+
+app.post('/add-to-cart', isAuthenticated, async (req, res) => {
+  const userId = req.session.userId;
+  const { product_id, quantity } = req.body;
+
+  try {
+    const productResult = await pool.query('SELECT * FROM Products WHERE product_id = $1', [product_id]);
+    if (productResult.rows.length === 0) {
+      return res.send('Invalid product ID.');
+    }
+
+    const product = productResult.rows[0];
+    const requestedQuantity = parseInt(quantity);
+
+    if (requestedQuantity <= 0) {
+      return res.send('Quantity must be greater than zero.');
+    }
+
+  
+    const cartResult = await pool.query(
+      'SELECT * FROM Cart WHERE user_id = $1 AND item_id = $2',
+      [userId, product_id]
+    );
+
+    let newQuantity = requestedQuantity;
+
+    if (cartResult.rows.length > 0) {
+      newQuantity += cartResult.rows[0].quantity;
+    }
+
+    if (newQuantity > product.stock_quantity) {
+      return res.send('Insufficient stock available.');
+    }
+
+    if (cartResult.rows.length > 0) {
+      await pool.query(
+        'UPDATE Cart SET quantity = $1 WHERE user_id = $2 AND item_id = $3',
+        [newQuantity, userId, product_id]
+      );
+    } else {
+      await pool.query(
+        'INSERT INTO Cart (user_id, item_id, quantity) VALUES ($1, $2, $3)',
+        [userId, product_id, requestedQuantity]
+      );
+    }
+
+    res.send(`Product added to cart successfully!`);
+  } catch (err) {
+    console.error(err);
+    res.send('Error adding product to cart.');
+  }
+});
+
+
+// Route: Remove product from cart
+// TODO: Implement "Remove from Cart" functionality
+app.get('/remove-from-cart', isAuthenticated, async (req, res) => {
+  res.render('remove-from-cart', { message: null });
+});
+
+app.post('/remove-from-cart', isAuthenticated, async (req, res) => {
+  const userId = req.session.userId;
+  const { product_id } = req.body;
+
+  try {
+    // Check if product exists in cart
+    const cartItem = await pool.query(
+      'SELECT * FROM Cart WHERE user_id = $1 AND item_id = $2',
+      [userId, product_id]
+    );
+
+    if (cartItem.rows.length === 0) {
+      return res.render('remove-from-cart', { message: 'Product not found in your cart.' });
+    }
+
+    // Remove item from cart
+    await pool.query(
+      'DELETE FROM Cart WHERE user_id = $1 AND item_id = $2',
+      [req.session.userId, productId]
+    );
+
+    res.render('remove-from-cart', { message: 'Product removed from cart successfully!' });
+  } catch (err) {
+    console.error(err);
+    res.render('remove-from-cart', { message: 'Error removing product from cart.' });
+  }
+});
+
+
+// Route: Display cart
+// TODO: Retrieve and display the user's cart items
+app.get('/display-cart', isAuthenticated, async (req, res) => {
+  try {
+    const userId = req.session.userId;
+
+    // Fetch cart items with product details
+    const result = await pool.query(`
+      SELECT 
+        p.product_id,
+        p.name,
+        p.price,
+        p.stock_quantity,
+        c.quantity
+      FROM Cart c
+      JOIN Products p ON c.item_id = p.product_id
+      WHERE c.user_id = $1
+      ORDER BY p.product_id
+    `, [userId]);
+
+    const cartItems = result.rows;
+
+    if (cartItems.length === 0) {
+      return res.render('display-cart', { cartItems: [], message: 'Your cart is empty.', totalPrice: 0 });
+    }
+
+    // Calculate total price for each item and overall total
+    let totalPrice = 0;
+    const items = cartItems.map(item => {
+      const itemTotal = item.price * item.quantity;
+      totalPrice += itemTotal;
+
+      return {
+        product_id: item.product_id,
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+        stock_quantity: item.stock_quantity,
+        itemTotal: itemTotal,
+        inStock: item.stock_quantity >= item.quantity
+      };
+    });
+
+    res.render('display-cart', { cartItems: items, message: null, totalPrice });
+
+  } catch (err) {
+    console.error(err);
+    res.send('Error retrieving cart items.');
+  }
+});
+
+
+// Route: Place order (clear cart)
+// TODO: Implement order placement logic
+app.post('/place-order', isAuthenticated, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const userId = req.session.userId;
+
+    // Fetch user's cart items
+    const cartResult = await client.query(`
+      SELECT p.product_id, p.name, p.price, p.stock_quantity, c.quantity
+      FROM Cart c
+      JOIN Products p ON c.item_id = p.product_id
+      WHERE c.user_id = $1
+      ORDER BY p.product_id
+    `, [userId]);
+
+    const cartItems = cartResult.rows;
+
+    if (cartItems.length === 0) {
+      return res.send('Your cart is empty.');
+    }
+
+    // Check stock for each item
+    for (const item of cartItems) {
+      if (item.quantity > item.stock_quantity) {
+        return res.send(`Insufficient stock for product: ${item.name}`);
+      }
+    }
+
+    // Calculate total amount
+    const totalAmount = cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+    // Begin transaction
+    await client.query('BEGIN');
+
+    // Insert order
+    const orderResult = await client.query(`
+      INSERT INTO Orders (user_id, total_amount)
+      VALUES ($1, $2)
+      RETURNING order_id, order_date
+    `, [userId, totalAmount]);
+
+    const orderId = orderResult.rows[0].order_id;
+    const orderDate = orderResult.rows[0].order_date;
+
+    // Insert each order item and update stock
+    for (const item of cartItems) {
+      await client.query(`
+        INSERT INTO OrderItems (order_id, product_id, quantity, price)
+        VALUES ($1, $2, $3, $4)
+      `, [orderId, item.product_id, item.quantity, item.price]);
+
+      await client.query(`
+        UPDATE Products
+        SET stock_quantity = stock_quantity - $1
+        WHERE product_id = $2
+      `, [item.quantity, item.product_id]);
+    }
+
+    // Clear user's cart
+    await client.query('DELETE FROM Cart WHERE user_id = $1', [userId]);
+
+    // Commit transaction
+    await client.query('COMMIT');
+
+    // Save order ID in session to show in confirmation
+    req.session.lastOrderId = orderId;
+
+    // Redirect to confirmation page
+    res.redirect('/order-confirmation');
+
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.send('Error placing order.');
+  } finally {
+    client.release();
+  }
+});
+
+
+// Route: Order confirmation
+// TODO: Display order confirmation details
+app.get('/order-confirmation', isAuthenticated, async (req, res) => {
+  const userId = req.session.userId;
+  const orderId = req.session.lastOrderId;
+
+  if (!orderId) {
+    return res.send('No order found.');
+  }
+
+  try {
+    // Get order details
+    const orderResult = await pool.query(`
+      SELECT order_id, order_date, total_amount
+      FROM Orders
+      WHERE order_id = $1 AND user_id = $2
+    `, [orderId, userId]);
+
+    const order = orderResult.rows[0];
+
+    // Get order items
+    const itemsResult = await pool.query(`
+      SELECT oi.product_id, p.name, oi.quantity, oi.price
+      FROM OrderItems oi
+      JOIN Products p ON oi.product_id = p.product_id
+      WHERE oi.order_id = $1
+      ORDER BY oi.product_id
+    `, [orderId]);
+
+    const items = itemsResult.rows;
+
+    res.render('order_confirmation', {
+      orderId: order.order_id,
+      orderDate: order.order_date,
+      totalAmount: order.total_amount,
+      items: items
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.send('Error loading order confirmation.');
+  }
+});
+
+
+// Route: Logout (destroy session)
+app.get('/logout', (req, res) => {
+  req.session.destroy((err) => {
+    if (err) {
+      return res.send('Error logging out');
+    }
+    res.redirect('/login');
+  });
+});
