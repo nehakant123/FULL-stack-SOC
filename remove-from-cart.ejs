@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Remove from Cart</title>
+</head>
+<body>
+  <h1>Remove Product from Cart</h1>
+
+  <% if (typeof message !== 'undefined' && message) { %>
+    <p><%= message %></p>
+  <% } %>
+
+  <form method="POST" action="/remove-from-cart">
+    <label for="product_id">Product ID:</label><br>
+    <input type="number" name="product_id" required><br><br>
+    <button type="submit">Remove from Cart</button>
+  </form>
+
+  <a href="/dashboard">Back to Dashboard</a>
+</body>
+</html>
