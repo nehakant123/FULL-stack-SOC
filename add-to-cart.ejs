@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Add to Cart</title>
+</head>
+<body>
+  <h1>Add Product to Cart</h1>
+
+  <% if (message) { %>
+    <p style="color: green;"><%= message %></p>
+  <% } %>
+
+  <form method="POST" action="/add-to-cart">
+    <label for="product_id">Select Product:</label>
+    <select name="product_id" required>
+      <% products.forEach(product => { %>
+        <option value="<%= product.product_id %>">
+          <%= product.name %> ($<%= product.price %>) | Stock: <%= product.stock_quantity %>
+        </option>
+      <% }); %>
+    </select><br><br>
+
+    <label for="quantity">Quantity:</label>
+    <input type="number" name="quantity" min="1" required><br><br>
+
+    <button type="submit">Add to Cart</button>
+  </form>
+
+  <a href="/dashboard">Back to Dashboard</a>
+</body>
+</html>
