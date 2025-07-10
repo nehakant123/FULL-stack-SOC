@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Your Cart</title>
+  <style>
+    table { border-collapse: collapse; width: 80%; }
+    th, td { border: 1px solid #ddd; padding: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Your Cart</h1>
+
+  <% if (typeof message !== 'undefined' && message) { %>
+    <p><%= message %></p>
+  <% } else { %>
+    <table>
+      <tr>
+        <th>Product ID</th>
+        <th>Name</th>
+        <th>Unit Price</th>
+        <th>Quantity</th>
+        <th>Item Total</th>
+        <th>Stock Status</th>
+      </tr>
+      <% cartItems.forEach(item => { %>
+        <tr>
+          <td><%= item.product_id %></td>
+          <td><%= item.name %></td>
+          <td>$<%= item.price %></td>
+          <td><%= item.quantity %></td>
+          <td>$<%= item.itemTotal %></td>
+          <td>
+            <%= item.inStock ? 'In Stock' : 'Out of Stock' %>
+          </td>
+        </tr>
+      <% }); %>
+    </table>
+
+    <h3>Total Price: $<%= totalPrice %></h3>
+
+    <form method="POST" action="/place-order">
+      <button type="submit">Place Order</button>
+    </form>
+  <% } %>
+
+  <br>
+  <a href="/dashboard">Back to Dashboard</a>
+</body>
+</html>
